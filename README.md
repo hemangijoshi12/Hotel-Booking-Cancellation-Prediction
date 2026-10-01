@@ -2,9 +2,6 @@
 
 Predicting which hotel bookings will be cancelled, and profiling the guests who cancel, using Random Forest, Logistic Regression and K-Means clustering on ~120K reservations from two Portuguese hotels.
 
-> **Group project:** COMP5310 Project Stage 2 (Lab 08, Group 09), University of Sydney.
-> Team: Hemangi Joshi and [teammate name]. Both members contributed equally across data preparation, modelling, evaluation and writing (see the report, section 6).
-
 ## Problem
 
 Cancellations cause empty rooms, lost revenue and poor demand forecasts. This project asks:
