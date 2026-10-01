@@ -26,7 +26,7 @@ Evaluated on a held-out, stratified 20% test set (17,536 bookings, 4,860 of them
 
 ## Dataset
 
-- **Source:** Course-provided "Dataset C: Hotel Bookings" (COMP5310), a version of the public Hotel Booking Demand dataset (Antonio, Almeida & Nunes, 2019) [confirm source/licence]. The raw file is not included in this repo.
+- **Source:** Course-provided "Dataset C: Hotel Bookings" (COMP5310). The raw file is included in this repo.
 - **Size:** 119,987 rows, 32 columns; City Hotel and Resort Hotel, July 2015 to August 2017.
 - **Target:** `is_canceled` (0 = not cancelled, 1 = cancelled).
 - **After cleaning:** 87,678 rows, 63,381 not cancelled (72.3%) and 24,297 cancelled (27.7%).
