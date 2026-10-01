@@ -98,4 +98,4 @@ jupyter notebook
 
 ## Report and Notes
 
-- Full methodology and discussion: [`Lab_08_Group_09_Report.pdf`](Lab_08_Group_09_Report.pdf).
+- Full methodology and discussion: [`Report.pdf`](Report.pdf).
