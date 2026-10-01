@@ -1,673 +1,104 @@
-# 🏨 Hotel Booking Cancellation Prediction
+# Hotel Booking Cancellation Prediction
 
-An end-to-end machine learning project for **predicting hotel booking cancellations and identifying customer booking segments** using historical hotel reservation data.
+Predicting which hotel bookings will be cancelled, and profiling the guests who cancel, using Random Forest, Logistic Regression and K-Means clustering on ~120K reservations from two Portuguese hotels.
 
-The project covers the complete data science workflow: **data cleaning, exploratory data analysis, feature engineering, leakage prevention, supervised classification, hyperparameter tuning, model evaluation, and unsupervised customer segmentation**.
+> **Group project:** COMP5310 Project Stage 2 (Lab 08, Group 09), University of Sydney.
+> Team: Hemangi Joshi and [teammate name]. Both members contributed equally across data preparation, modelling, evaluation and writing (see the report, section 6).
 
----
+## Problem
 
-## 📌 Problem Statement
+Cancellations cause empty rooms, lost revenue and poor demand forecasts. This project asks:
 
-Hotel booking cancellations can affect room availability, revenue forecasting, and operational planning.
+1. Can booking information predict whether a reservation will be cancelled?
+2. Among cancelled bookings, are there distinct guest "risk personas"?
 
-This project investigates whether historical booking information can be used to predict whether a reservation will be cancelled and whether cancelled bookings can be further segmented into meaningful customer groups.
+## Key Results
 
-### Objectives
+Evaluated on a held-out, stratified 20% test set (17,536 bookings, 4,860 of them cancelled). Both models were tuned for F1 because only 27.7% of bookings are cancelled.
 
-1. Clean and preprocess real-world hotel booking data.
-2. Identify patterns associated with booking cancellations.
-3. Engineer features that better represent booking behaviour.
-4. Build and tune classification models for cancellation prediction.
-5. Compare model performance using multiple evaluation metrics.
-6. Use K-Means clustering to identify distinct booking/customer segments.
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|---|---:|---:|---:|---:|---:|
+| **Random Forest** (tuned) | **79.43%** | **60.56%** | 73.87% | **66.56%** | **86.43%** |
+| Logistic Regression (tuned) | 70.11% | 47.60% | **77.72%** | 59.04% | 81.53% |
 
----
+- **Random Forest is the stronger model overall.** It catches about 74% of actual cancellations (3,590 of 4,860) and is right about 61% of the time when it raises a flag.
+- **Logistic Regression flags more cancellations (higher recall) but with many more false alarms** (4,158 vs 2,338 false positives), so the better choice depends on the relative cost of a missed cancellation vs unnecessary outreach.
+- **Lead time is the strongest signal.** The cancellation rate rises from 8.4% for bookings made within 7 days to 38.4% for bookings made more than 150 days ahead, and `lead_time` is the top Random Forest feature.
+- **Logistic Regression coefficients** show Non Refund deposits, previous cancellations and Transient customers raising cancellation risk, and parking requests and Offline TA/TO bookings lowering it.
+- **K-Means found four profiles among cancelled bookings** (see below), with modest cluster separation (silhouette 0.29).
 
-## 📊 Dataset
+## Dataset
 
-The project uses the **Hotel Booking Demand** dataset containing reservations from:
+- **Source:** Course-provided "Dataset C: Hotel Bookings" (COMP5310), a version of the public Hotel Booking Demand dataset (Antonio, Almeida & Nunes, 2019) [confirm source/licence]. The raw file is not included in this repo.
+- **Size:** 119,987 rows, 32 columns; City Hotel and Resort Hotel, July 2015 to August 2017.
+- **Target:** `is_canceled` (0 = not cancelled, 1 = cancelled).
+- **After cleaning:** 87,678 rows, 63,381 not cancelled (72.3%) and 24,297 cancelled (27.7%).
 
-* **City Hotel**
-* **Resort Hotel**
+## Approach
 
-The original dataset contains **119,987 records and 32 attributes**. The target variable is:
+**1. Data cleaning and EDA** (`Data_Cleaning.ipynb`)
 
-```text
-is_canceled
-```
+- **Missing values:** dropped `company` (94% missing); filled `agent` with 0 (treated as a direct booking), `children` with 0, `meal` with "Undefined", `country` with "None", and the remaining small gaps with the mode.
+- **Inconsistent values:** fixed spelling and whitespace variants (`CityHotel`, `Direc`, `bb`, `HB `), 955 reservation dates in mixed formats, and one negative ADR (set to 0).
+- **Invalid rows:** removed 180 bookings with zero guests (119,987 → 119,807), then 32,129 exact duplicates (→ 87,678).
+- **Feature engineering:** `total_stay_nights`, `total_guests`, `is_family`, `stay_category`, `room_type_changed`, and `is_direct_booking` (replacing `agent`).
+- **Leakage and noise removal:** dropped `reservation_status` and `reservation_status_date` (they encode the outcome) and `country` (178 values).
+- **EDA:** correlations, cancellation rate by lead-time quintile, ADR by cancellation status, cancellations by hotel and deposit type.
 
-| Value | Meaning                   |
-| ----- | ------------------------- |
-| `0`   | Booking was not cancelled |
-| `1`   | Booking was cancelled     |
+**2. Classification** (`Data_Modelling_and_Evaluation.ipynb`)
 
-The dataset contains information about:
+- 80/20 stratified split, `random_state=42`, `class_weight='balanced'` for both models, 3-fold stratified CV scored on F1.
+- **Random Forest:** ordinal-encoded categoricals, 30 features. Grid search over `n_estimators`, `max_depth` and `min_samples_split` on a 25,000-row training subsample, then refit on the full 70,142-row training set. Best: `n_estimators=200`, `max_depth=20`, `min_samples_split=5` (CV F1 0.635). Fully grown trees reached a training F1 of about 0.997 with lower CV F1, so depth and split size were constrained.
+- **Logistic Regression:** one-hot encoded (62 features), numeric features standardised with a scaler fitted on training data only. Grid search over `C` and `penalty` on the full training set. Best: `C=10`, `penalty='l1'` (CV F1 0.592).
 
-* Hotel type
-* Booking lead time
-* Arrival dates
-* Length of stay
-* Number of guests
-* Meal type
-* Market segment
-* Distribution channel
-* Previous cancellations
-* Previous bookings
-* Room types
-* Deposit type
-* Customer type
-* Average Daily Rate (ADR)
-* Special requests
-* Parking requirements
+**3. Segmentation with K-Means**
 
----
+On the 24,297 cancelled bookings only: ordinal encoding, 99th-percentile capping of ADR, lead time and days on the waiting list, then standardisation (27 features). `k` was chosen from 2 to 8 using inertia and silhouette score (best at k = 4, silhouette 0.2943). K-means++ and random initialisation, with `n_init` of 10, 20 and 50, all gave identical results.
 
-# 🔄 Project Pipeline
+| Persona | Bookings | Avg lead time (days) | Avg ADR | Special requests | Prior cancellations | Direct bookings |
+|---|---:|---:|---:|---:|---:|---:|
+| Standard Risk | 17,607 (72.5%) | 105 | 113.5 | 0.58 | 0.04 | 0.00 |
+| Premium Bookers | 3,058 (12.6%) | 113 | 165.7 | 0.57 | 0.02 | 0.01 |
+| Last-Minute Cancellers | 2,452 (10.1%) | 60 | 101.4 | 0.35 | 0.13 | 0.57 |
+| Extreme Planners | 1,180 (4.9%) | 226 | 94.3 | 0.02 | 0.46 | 0.12 |
 
-```text
-Raw Hotel Booking Data
-        │
-        ▼
-Data Quality Assessment
-        │
-        ▼
-Missing Value Treatment
-        │
-        ▼
-Categorical Value Normalisation
-        │
-        ▼
-Date & Data Type Cleaning
-        │
-        ▼
-Duplicate Removal
-        │
-        ▼
-Feature Engineering
-        │
-        ▼
-Leakage Prevention
-        │
-        ├───────────────┐
-        ▼               ▼
-Classification      Customer Segmentation
-        │               │
-        ▼               ▼
-Random Forest       K-Means
-Logistic Regression
-        │
-        ▼
-Model Evaluation
-```
+Persona names are interpretive labels based on each cluster's average profile.
 
----
+## Limitations and Future Work
 
-# 🧹 Data Cleaning
+- **Some predictors may not be known at booking time.** `room_type_changed` (the second most important Random Forest feature), `required_car_parking_spaces` (the largest Logistic Regression coefficient), `booking_changes` and `assigned_room_type` can reflect events after the booking is made, so the reported scores may be optimistic for a true at-booking-time model. Re-running without them is the obvious next test.
+- **Random, not time-based, split.** The data covers 2015 to 2017 and two hotels in Portugal, so results may not generalise to other periods or markets.
+- **Deposit effects are counter-intuitive.** Non Refund bookings show a very high cancellation rate in this data, so deposit-policy conclusions should not be drawn from it without more context.
+- **Duplicate removal** assumed identical rows are errors, but some may be genuine separate bookings (32,129 rows, about 27%, were removed).
+- **Random Forest importance** (mean decrease in impurity) favours high-cardinality numeric features; permutation importance would be less biased.
+- **Clustering** covers cancelled bookings only and separation is modest, so personas describe who cancels rather than predict cancellation.
+- **Possible next steps:** gradient boosting, decision-threshold tuning against business costs, permutation importance, and a time-based validation split.
 
-The `Data_Cleaning.ipynb` notebook performs detailed data-quality analysis and preprocessing.
-
-### Missing values
-
-The original dataset contained missing values in several attributes:
-
-| Feature                | Missing |
-| ---------------------- | ------: |
-| `children`             |     182 |
-| `meal`                 |     138 |
-| `country`              |     628 |
-| `market_segment`       |     129 |
-| `distribution_channel` |     164 |
-| `agent`                |  16,541 |
-| `company`              | 113,162 |
-| `customer_type`        |     154 |
-
-Different imputation strategies were applied depending on the meaning and scale of the missing data.
-
-Examples:
-
-* `children` → filled with `0`
-* `agent` → filled with `0`, representing direct booking
-* `country` → filled with `"None"`
-* `meal` → filled with `"Undefined"`
-* `market_segment`, `distribution_channel`, and `customer_type` → filled using their respective modes.
-
-### Categorical normalisation
-
-Categorical variables contained inconsistent formatting such as:
-
-```text
-City Hotel
-CityHotel
-
-groups
-Groups
-
-Direct
-Direc
-
-bb
-BB
-```
-
-String normalisation was applied by stripping whitespace and standardising categorical representations before modelling.
-
----
-
-# 🧠 Leakage Prevention
-
-Two variables were removed because they contain information about the booking outcome and would not be appropriate predictors when making a cancellation prediction:
-
-```text
-reservation_status
-reservation_status_date
-```
-
-The project also removed `country` because of its high cardinality and limited reliability as a booking-time predictor.
-
-The `agent` variable was transformed into:
-
-```text
-is_direct_booking
-```
-
-where:
-
-```text
-1 → direct booking
-0 → booking through an agent
-```
-
-The original `agent` column was then removed.
-
----
-
-# 🔧 Feature Engineering
-
-Several behavioural features were created to provide more useful representations of the bookings.
-
-### `total_stay_nights`
-
-```python
-total_stay_nights =
-    stays_in_weekend_nights + stays_in_week_nights
-```
-
-### `total_guests`
-
-```python
-total_guests =
-    adults + children + babies
-```
-
-### `is_family`
-
-A binary feature indicating whether children or babies are included in the booking.
-
-### `stay_category`
-
-Bookings are categorised as:
-
-* `Mixed`
-* `Weekend Only`
-* `Weekday Only`
-
-### `room_type_changed`
-
-Indicates whether the assigned room differs from the originally reserved room.
-
-These engineered features were designed to capture booking behaviour that is not directly represented by individual raw columns.
-
----
-
-# 🗑️ Duplicate Removal
-
-After cleaning, the dataset contained:
-
-```text
-119,807 rows × 31 columns
-```
-
-A total of:
-
-```text
-32,129 duplicate rows
-```
-
-were identified and removed.
-
-The final modelling dataset contains:
-
-```text
-87,678 rows × 31 columns
-```
-
-with:
-
-* **63,381 non-cancelled bookings — 72.3%**
-* **24,297 cancelled bookings — 27.7%**
-
----
-
-# 📈 Exploratory Data Analysis
-
-The project explores several relationships between booking characteristics and cancellation behaviour.
-
-### Analyses include
-
-* Correlation analysis of numerical variables
-* Cancellation probability across lead-time quantiles
-* ADR distribution by cancellation status
-* Cancellation counts by hotel type
-* Cancellation rate by deposit type
-
-For example, the notebook specifically analyses how **lead time** relates to cancellation probability and examines the relationship between **ADR and cancellation status**.
-
----
-
-# 🤖 Supervised Machine Learning
-
-Two classification approaches were developed:
-
-1. **Random Forest**
-2. **Logistic Regression**
-
-Because the dataset has an approximately **72.3% / 27.7% class distribution**, F1-score was used as the primary tuning metric rather than relying solely on accuracy.
-
-Both models use an **80/20 stratified train-test split** with `random_state=42`.
-
----
-
-## 🌲 Random Forest
-
-Categorical variables were transformed using `OrdinalEncoder`.
-
-```python
-OrdinalEncoder(
-    handle_unknown='use_encoded_value',
-    unknown_value=-1
-)
-```
-
-The model used:
-
-```python
-class_weight='balanced'
-max_features='sqrt'
-random_state=42
-n_jobs=-1
-```
-
-### Hyperparameter tuning
-
-GridSearchCV was performed using a **25,000-row stratified subsample** of the training data and **3-fold StratifiedKFold cross-validation**.
-
-Search space:
-
-```python
-n_estimators:
-    [100, 200]
-
-max_depth:
-    [10, 20, None]
-
-min_samples_split:
-    [2, 5]
-```
-
-The search was optimised for:
-
-```text
-F1 Score
-```
-
-### Best parameters
-
-```python
-{
-    'n_estimators': 200,
-    'max_depth': 20,
-    'min_samples_split': 5
-}
-```
-
-The best cross-validation F1 score was approximately **0.6353**. The tuned model was subsequently refitted on the full training set.
-
-### Test performance
-
-| Metric    |      Score |
-| --------- | ---------: |
-| Accuracy  | **79.43%** |
-| Precision | **60.56%** |
-| Recall    | **73.87%** |
-| F1 Score  | **66.56%** |
-| ROC-AUC   | **86.43%** |
-
-For the cancellation class specifically:
-
-| Metric    | Score |
-| --------- | ----: |
-| Precision |   61% |
-| Recall    |   74% |
-| F1 Score  |   67% |
-
-The model therefore identifies approximately **74% of cancelled bookings in the held-out test set**.
-
----
-
-## 📉 Logistic Regression
-
-For Logistic Regression, categorical variables were **one-hot encoded** using:
-
-```python
-pd.get_dummies(
-    df_lr,
-    columns=CAT_COLS,
-    drop_first=True
-)
-```
-
-This produced a feature matrix containing:
-
-```text
-87,678 rows × 62 features
-```
-
-Numerical features were standardised using `StandardScaler`, with the scaler fitted **only on the training data** to prevent data leakage.
-
-### Hyperparameter tuning
-
-GridSearchCV explored:
-
-```python
-C:
-    [0.01, 0.1, 1, 10]
-
-penalty:
-    ['l1', 'l2']
-```
-
-using 3-fold StratifiedKFold cross-validation.
-
-The model used:
-
-```python
-class_weight='balanced'
-solver='liblinear'
-max_iter=500
-```
-
-### Best parameters
-
-```python
-{
-    'C': 10,
-    'penalty': 'l1'
-}
-```
-
-Best cross-validation F1:
-
-```text
-0.5919
-```
-
-### Test performance
-
-| Metric    |      Score |
-| --------- | ---------: |
-| Accuracy  | **70.11%** |
-| Precision | **47.60%** |
-| Recall    | **77.72%** |
-| F1 Score  | **59.04%** |
-| ROC-AUC   | **81.53%** |
-
----
-
-# 📊 Model Comparison
-
-| Model               |   Accuracy |  Precision |     Recall |         F1 |    ROC-AUC |
-| ------------------- | ---------: | ---------: | ---------: | ---------: | ---------: |
-| Random Forest       | **79.43%** | **60.56%** |     73.87% | **66.56%** | **86.43%** |
-| Logistic Regression |     70.11% |     47.60% | **77.72%** |     59.04% |     81.53% |
-
-The results show different performance characteristics:
-
-* Random Forest achieved higher accuracy, precision, F1, and ROC-AUC on the held-out test set.
-* Logistic Regression achieved higher recall for cancelled bookings.
-* Random Forest tuning also demonstrated the importance of controlling tree depth and minimum split size to reduce overfitting.
-
----
-
-# 🔎 Hyperparameter Tuning & Overfitting
-
-The Random Forest grid search provided an explicit comparison between model complexity and cross-validation performance.
-
-For example, an unconstrained forest with:
-
-```text
-max_depth = None
-min_samples_split = 2
-```
-
-achieved a training F1 of approximately **0.997**, while its cross-validation F1 was substantially lower.
-
-The selected configuration:
-
-```text
-max_depth = 20
-min_samples_split = 5
-n_estimators = 200
-```
-
-provided a better balance between training performance and cross-validation performance.
-
-This demonstrates the practical importance of hyperparameter tuning rather than simply selecting the most complex model.
-
----
-
-# 👥 Customer Segmentation with K-Means
-
-In addition to cancellation prediction, the project uses **K-Means clustering** to identify distinct booking segments.
-
-The clustering workflow:
-
-1. Focuses on cancelled bookings.
-2. Removes variables that are unsuitable for clustering.
-3. Encodes categorical variables using `OrdinalEncoder`.
-4. Caps extreme values at the 99th percentile for selected numerical variables.
-5. Standardises the feature matrix.
-6. Evaluates different values of `k`.
-7. Compares K-Means initialisation strategies.
-8. Profiles the resulting clusters.
-
-For outlier handling, the following features were capped at their 99th percentile:
-
-```text
-ADR
-Lead Time
-Days in Waiting List
-```
-
-The features were then standardised because K-Means relies on Euclidean distance.
-
----
-
-## Selecting the Number of Clusters
-
-Values of `k` from 2 to 8 were evaluated using inertia and silhouette score.
-
-|     k |     Inertia | Silhouette |
-| ----: | ----------: | ---------: |
-|     2 |     568,110 |     0.2695 |
-|     3 |     516,160 |     0.2833 |
-| **4** | **484,444** | **0.2943** |
-|     5 |     456,001 |     0.1268 |
-|     6 |     436,235 |     0.1358 |
-|     7 |     406,271 |     0.1461 |
-|     8 |     394,663 |     0.1579 |
-
-The analysis selected:
-
-```text
-k = 4
-```
-
-with:
-
-```text
-init = k-means++
-n_init = 10
-```
-
----
-
-# 👤 Booking Personas
-
-The final K-Means model produced four booking segments:
-
-| Cluster | Segment                | Bookings | Share |
-| ------: | ---------------------- | -------: | ----: |
-|       0 | Extreme Planners       |    1,180 |  4.9% |
-|       1 | Standard Risk          |   17,607 | 72.5% |
-|       2 | Premium Bookers        |    3,058 | 12.6% |
-|       3 | Last-Minute Cancellers |    2,452 | 10.1% |
-
-Final clustering metrics:
-
-```text
-Silhouette Score : 0.2943
-Inertia (WCSS)   : 484,444
-```
-
-These clusters provide an additional behavioural view of the booking data alongside the supervised cancellation prediction models.
-
----
-
-# 🛠️ Technologies
-
-* **Python**
-* **Pandas**
-* **NumPy**
-* **Scikit-learn**
-* **Matplotlib**
-* **Seaborn**
-* **Jupyter Notebook**
-
-### Machine Learning
-
-* Random Forest
-* Logistic Regression
-* K-Means Clustering
-* GridSearchCV
-* Stratified K-Fold Cross-Validation
-* Ordinal Encoding
-* One-Hot Encoding
-* Standard Scaling
-
----
-
-# 📁 Repository Structure
+## Repository Structure
 
 ```text
 Hotel-Booking-Cancellation-Prediction/
-│
-├── Data_Cleaning.ipynb
-├── Data_Modelling_and_Evaluation.ipynb
-├── Lab_08_Group_09_Report.pdf
+├── Data_Cleaning.ipynb                  # Cleaning, feature engineering, EDA
+├── Data_Modelling_and_Evaluation.ipynb  # Random Forest, Logistic Regression, K-Means
+├── Lab_08_Group_09_Report.pdf           # Full written report
 └── README.md
 ```
 
-### Notebooks
-
-**`Data_Cleaning.ipynb`**
-
-Contains:
-
-* Data quality assessment
-* Missing-value analysis
-* Categorical normalisation
-* Data type correction
-* Duplicate detection/removal
-* Feature engineering
-* Leakage prevention
-* Exploratory data analysis
-
-**`Data_Modelling_and_Evaluation.ipynb`**
-
-Contains:
-
-* Random Forest classification
-* Logistic Regression classification
-* Hyperparameter tuning
-* Cross-validation
-* Classification metrics
-* Confusion matrices
-* ROC-AUC evaluation
-* K-Means clustering
-* Cluster selection
-* Cluster profiling
-
-**`Lab_08_Group_09_Report.pdf`**
-
-Contains the detailed project report and analysis.
-
----
-
-# 🚀 Running the Project
-
-### 1. Clone the repository
+## How to Run
 
 ```bash
 git clone https://github.com/hemangijoshi12/Hotel-Booking-Cancellation-Prediction.git
-
 cd Hotel-Booking-Cancellation-Prediction
-```
-
-### 2. Install dependencies
-
-```bash
 pip install pandas numpy matplotlib seaborn scikit-learn jupyter
-```
-
-### 3. Run the notebooks
-
-Open Jupyter:
-
-```bash
 jupyter notebook
 ```
 
-Run:
+1. Place the raw dataset in the repo root as `hotel_bookings.csv`.
+2. Run `Data_Cleaning.ipynb`. It writes the cleaned data to `dataset_c.csv`.
+3. Run `Data_Modelling_and_Evaluation.ipynb`, which reads `dataset_c.csv`.
 
-```text
-Data_Cleaning.ipynb
-        ↓
-Data_Modelling_and_Evaluation.ipynb
-```
+**Tech stack:** Python, pandas, NumPy, scikit-learn, Matplotlib, Seaborn, Jupyter
 
-The modelling notebook expects the cleaned dataset generated by the data-cleaning notebook.
+## Report and Notes
 
----
-
-# 📌 Key Takeaways
-
-This project demonstrates an end-to-end approach to a real-world classification problem:
-
-* Performed extensive data-quality analysis on **119K+ hotel booking records**.
-* Removed **32K+ duplicate records**.
-* Addressed missing values and inconsistent categorical representations.
-* Created behaviour-oriented features such as `total_stay_nights`, `total_guests`, `is_family`, and `room_type_changed`.
-* Explicitly removed potential **target leakage**.
-* Used **stratified train-test splitting** to preserve class distribution.
-* Tuned Random Forest and Logistic Regression using **3-fold cross-validation**.
-* Evaluated models using **Accuracy, Precision, Recall, F1 and ROC-AUC**.
-* Used K-Means to identify **four booking segments**.
-* Combined predictive modelling with unsupervised segmentation to provide complementary views of hotel booking behaviour.
-
----
-
-## 📄 Detailed Report
-
-For the complete methodology, analysis and discussion, see:
-
-**[Lab_08_Group_09_Report.pdf](Lab_08_Group_09_Report.pdf)**
+- Full methodology and discussion: [`Lab_08_Group_09_Report.pdf`](Lab_08_Group_09_Report.pdf).
